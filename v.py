@@ -42,6 +42,7 @@ def show_pixmap(pixmap, column=2):
 
 # index = 0
 value_to_webview_map = dict()
+previous_list_sizes = dict()  # Track previous list sizes
 
 def value_to_dict(value):
     try:
@@ -109,8 +110,16 @@ def get_constant_html_template():
                 background-color: #ff6b6b;
                 animation: flashFade 1s ease-out forwards;
             }
+            .flash-green {
+                background-color: #4ecdc4;
+                animation: flashFadeGreen 1s ease-out forwards;
+            }
             @keyframes flashFade {
                 0% { background-color: #ff6b6b; }
+                100% { background-color: transparent; }
+            }
+            @keyframes flashFadeGreen {
+                0% { background-color: #4ecdc4; }
                 100% { background-color: transparent; }
             }
         </style>
@@ -118,6 +127,7 @@ def get_constant_html_template():
         var globalDetailStates = {};
         var currentStorageKey = '';
         var previousData = {};
+        var previousListSizes = {};
         
         function buildHtmlFromData(data, path = "") {
             if (typeof data === 'string') {
@@ -152,6 +162,7 @@ def get_constant_html_template():
         
         function checkForChanges(data, path = "") {
             var changed = [];
+            var newElements = [];
             
             function traverse(currentData, currentPath) {
                 if (typeof currentData === 'string' || typeof currentData !== 'object' || currentData === null) {
@@ -167,9 +178,30 @@ def get_constant_html_template():
                 
                 var stringRepr = currentData.string_repr || '';
                 var key = currentPath + '_repr';
-                if (previousData[currentStorageKey] && previousData[currentStorageKey][key] !== undefined && previousData[currentStorageKey][key] !== stringRepr) {
-                    changed.push(currentPath);
+                
+                // Check if this is a list (has size= in string_repr)
+                var isListMatch = stringRepr.match(/^size=(\d+)$/);
+                if (isListMatch) {
+                    var currentSize = parseInt(isListMatch[1]);
+                    var sizeKey = currentPath + '_size';
+                    var prevSize = previousListSizes[currentStorageKey] && previousListSizes[currentStorageKey][sizeKey];
+                    
+                    if (prevSize !== undefined && currentSize > prevSize) {
+                        // New elements added - mark them as new
+                        for (var i = prevSize; i < currentSize; i++) {
+                            newElements.push(currentPath + '_' + i);
+                        }
+                    }
+                    
+                    if (!previousListSizes[currentStorageKey]) previousListSizes[currentStorageKey] = {};
+                    previousListSizes[currentStorageKey][sizeKey] = currentSize;
+                } else {
+                    // Regular change detection for non-lists
+                    if (previousData[currentStorageKey] && previousData[currentStorageKey][key] !== undefined && previousData[currentStorageKey][key] !== stringRepr) {
+                        changed.push(currentPath);
+                    }
                 }
+                
                 if (!previousData[currentStorageKey]) previousData[currentStorageKey] = {};
                 previousData[currentStorageKey][key] = stringRepr;
                 
@@ -180,12 +212,28 @@ def get_constant_html_template():
             }
             
             traverse(data, path);
-            return changed;
+            return { changed: changed, newElements: newElements };
         }
         
-        function flashElements(changedPaths) {
-            // Filter out parent paths if their children are also changing and visible
+        function flashElements(changedPaths, newElementPaths) {
+            // Flash new elements green
+            newElementPaths.forEach(function(path) {
+                var elements = document.querySelectorAll('[data-path="' + path + '"]');
+                elements.forEach(function(element) {
+                    element.classList.remove('flash-green');
+                    // Force reflow to restart animation
+                    element.offsetHeight;
+                    element.classList.add('flash-green');
+                });
+            });
+            
+            // Flash changed elements red (excluding those that are new)
             var filteredPaths = changedPaths.filter(function(path) {
+                // Don't flash if this path is a new element
+                if (newElementPaths.indexOf(path) !== -1) {
+                    return false;
+                }
+                
                 // Check if any other path in the list is a child of this path
                 var hasChangedChild = changedPaths.some(function(otherPath) {
                     return otherPath !== path && otherPath.startsWith(path + '_');
@@ -249,13 +297,13 @@ def get_constant_html_template():
         
         function updateContent(data, storageKey) {
             currentStorageKey = storageKey;
-            var changedPaths = checkForChanges(data);
+            var changeInfo = checkForChanges(data);
             var contentDiv = document.getElementById('content');
             contentDiv.innerHTML = buildHtmlFromData(data);
             restoreState();
             attachToggleListeners();
-            if (changedPaths.length > 0) {
-                flashElements(changedPaths);
+            if (changeInfo.changed.length > 0 || changeInfo.newElements.length > 0) {
+                flashElements(changeInfo.changed, changeInfo.newElements);
             }
         }
         
@@ -275,7 +323,7 @@ def get_constant_html_template():
     </html>
     """
 
-def string_vis(value):
+def object_vis(value):
     import json
     
     global value_to_webview_map
@@ -284,7 +332,6 @@ def string_vis(value):
     
     if val_name in value_to_webview_map:
         webview = value_to_webview_map[val_name]
-        # Send data via postMessage
         message = {
             'type': 'updateData',
             'data': dbg_value,
@@ -292,11 +339,9 @@ def string_vis(value):
         }
         webview.post_message(json.dumps(message))
     else:
-        # Create new webview with constant HTML template
         webview = debugger.create_webview(get_constant_html_template(), view_column=2, enable_scripts=True)
         value_to_webview_map[val_name] = webview
         
-        # Send initial data
         message = {
             'type': 'updateData',
             'data': dbg_value,
@@ -309,7 +354,7 @@ def string_vis(value):
 def list_vis(value, expression=""):
     import json
     
-    global value_to_webview_map
+    global value_to_webview_map, previous_list_sizes
     
     target = lldb.debugger.GetSelectedTarget()
     process = target.GetProcess()
@@ -321,17 +366,18 @@ def list_vis(value, expression=""):
 
     list_size = frame.EvaluateExpression(f"{variable_name}.size()").GetValueAsUnsigned()
     
-    # Create dictionary structure for the list
+    storage_key = f'detailsState_{variable_name}'
+    if storage_key not in previous_list_sizes:
+        previous_list_sizes[storage_key] = {}
+    
     list_data = {
         'name': variable_name,
         'string_repr': f"size={list_size}",
         'children': []
     }
     
-    # Add each list element as a child
     for i in range(list_size):
         if expression and expression.strip():
-            # Use expression evaluation with $ placeholder
             evaluated_expression = expression.replace('$', f"{variable_name}[{i}]")
             try:
                 result = frame.EvaluateExpression(evaluated_expression)
@@ -339,7 +385,7 @@ def list_vis(value, expression=""):
 
                 if result_type == 'char': # display the characters instead of their ascii values
                     result_numerical_value = result.GetValueAsSigned()
-                    result = chr(result_numerical_value)  # Convert char to string
+                    result = chr(result_numerical_value)
                     result_str = result
                 else:
                     result = type(value)(result)
@@ -353,15 +399,12 @@ def list_vis(value, expression=""):
                 'children': []
             }
         else:
-            # Original behavior - show actual list elements
             item = frame.EvaluateExpression(f"{variable_name}[{i}]")
             item_wrapped = type(value)(item)
             child_data = value_to_dict(item_wrapped)
-            # Override name to show index
             if isinstance(child_data, dict):
                 child_data['name'] = f"[{i}]"
             else:
-                # If value_to_dict returned a string (error), create proper structure
                 child_data = {
                     'name': f"[{i}]",
                     'string_repr': str(item),
@@ -371,7 +414,6 @@ def list_vis(value, expression=""):
     
     if variable_name in value_to_webview_map:
         webview = value_to_webview_map[variable_name]
-        # Send data via postMessage
         message = {
             'type': 'updateData',
             'data': list_data,
@@ -379,11 +421,9 @@ def list_vis(value, expression=""):
         }
         webview.post_message(json.dumps(message))
     else:
-        # Create new webview with constant HTML template
         webview = debugger.create_webview(get_constant_html_template(), view_column=2, enable_scripts=True)
         value_to_webview_map[variable_name] = webview
         
-        # Send initial data
         message = {
             'type': 'updateData',
             'data': list_data,
