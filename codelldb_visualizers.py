@@ -202,6 +202,11 @@ def get_constant_html_template():
                 }
                 html += '</table></div>';
             } else if (children.length > 0) {
+                // New filter controls for non-table lists
+                html += '<div class="filter-controls" data-path="' + path + '" style="margin-bottom:5px;">';
+                html += '<input type="text" class="filter-input" placeholder="Filter items" />';
+                html += '<button onclick="applyFilter(\\'' + path + '\\', this)">Filter</button>';
+                html += '</div>';
                 html += '<details id="' + nodeId + '">';
                 html += '<summary>(' + children.length + ')</summary>';
                 html += '<div class="children">';
@@ -219,31 +224,40 @@ def get_constant_html_template():
         function applyFilter(path, btn) {
             var controls = btn.parentElement;
             var filterText = controls.querySelector('input.filter-input').value;
-            var colIndex = parseInt(controls.querySelector('select.filter-column').value) + 1;
-            console.log('col value:')
-            console.log(controls.querySelector('select.filter-column').value);
-            // remember this filter for future updates
-            filterSettings[path] = { colIndex: colIndex, filterText: filterText };
             var container = controls.nextElementSibling;
-            var rows = container.querySelectorAll('table.data-table tr');
-            for (var i = 1; i < rows.length; i++) {
-                var cells = rows[i].querySelectorAll('td');
-                var show = false;
-                if (!filterText) {
-                    show = true;
-                } else if (colIndex === -1) {
-                    // any cell match
-                    for (var j = 0; j < cells.length; j++) {
-                        if (cells[j].textContent === filterText) {
-                            show = true; break;
-                        }
-                    }
-                } else if (colIndex > 0 && colIndex <= cells.length) {
-                    if (cells[colIndex - 1].textContent === filterText) {
+            var table = container.querySelector('table.data-table');
+
+            if (table) {
+                var colIndex = parseInt(controls.querySelector('select.filter-column').value) + 1;
+                console.log('col value:')
+                console.log(controls.querySelector('select.filter-column').value);
+                // remember this filter for future updates
+                filterSettings[path] = { colIndex: colIndex, filterText: filterText };
+                var rows = container.querySelectorAll('table.data-table tr');
+                for (var i = 1; i < rows.length; i++) {
+                    var cells = rows[i].querySelectorAll('td');
+                    var show = false;
+                    if (!filterText) {
                         show = true;
+                    } else if (colIndex === -1) {
+                        // any cell match
+                        for (var j = 0; j < cells.length; j++) {
+                            if (cells[j].textContent === filterText) { show = true; break; }
+                        }
+                    } else if (colIndex > 0 && colIndex <= cells.length) {
+                        if (cells[colIndex - 1].textContent === filterText) show = true;
                     }
+                    rows[i].style.display = show ? '' : 'none';
                 }
-                rows[i].style.display = show ? '' : 'none';
+            } else {
+                // filtering for non-table children: match only the value for exact equality
+                var items = container.querySelectorAll('.children .node');
+                items.forEach(function(item) {
+                    var valueSpan = item.querySelector('.value-span');
+                    var val = valueSpan ? valueSpan.textContent : '';
+                    var show = !filterText || (val === filterText);
+                    item.style.display = show ? '' : 'none';
+                });
             }
         }
         
