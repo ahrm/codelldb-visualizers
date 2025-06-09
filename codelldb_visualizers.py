@@ -275,12 +275,20 @@ def get_constant_html_template():
         }
         
         function restoreState() {
+            var details = document.querySelectorAll('details');
             if (globalDetailStates[currentStorageKey]) {
                 var states = globalDetailStates[currentStorageKey];
-                var details = document.querySelectorAll('details');
                 details.forEach(function(detail) {
                     if (detail.id && states.hasOwnProperty(detail.id)) {
                         detail.open = states[detail.id];
+                    }
+                });
+            } else {
+                // No previous state - expand top-level details by default
+                details.forEach(function(detail) {
+                    // Check if this is a top-level detail (parent is content div)
+                    if (detail.parentElement && detail.parentElement.parentElement && detail.parentElement.parentElement.id === 'content') {
+                        detail.open = true;
                     }
                 });
             }
