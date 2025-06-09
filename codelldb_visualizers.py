@@ -138,11 +138,11 @@ def get_constant_html_template():
                 text-align: left;
             }
             .data-table th {
-                background-color: #f2f2f2;
+                background-color: #3a3a3a;
                 font-weight: bold;
             }
             .data-table tr:nth-child(even) {
-                background-color: #f9f9f9;
+                background-color: #2a2a2a;
             }
         </style>
         <script>
