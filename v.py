@@ -335,8 +335,15 @@ def list_vis(value, expression=""):
             evaluated_expression = expression.replace('$', f"{variable_name}[{i}]")
             try:
                 result = frame.EvaluateExpression(evaluated_expression)
-                result = type(value)(result) # convert result to codelldb.value.Value type
-                result_str = str(result)
+                result_type = result.GetTypeName()
+
+                if result_type == 'char': # display the characters instead of their ascii values
+                    result_numerical_value = result.GetValueAsSigned()
+                    result = chr(result_numerical_value)  # Convert char to string
+                    result_str = result
+                else:
+                    result = type(value)(result)
+                    result_str = str(result)
             except Exception as e:
                 result_str = f"Error: {str(e)}"
             
