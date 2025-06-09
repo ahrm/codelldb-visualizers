@@ -3,6 +3,7 @@ import lldb
 import debugger
 import base64
 import matplotlib
+import codelldb
 import time
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
@@ -122,6 +123,27 @@ def get_constant_html_template():
                 0% { background-color: #4ecdc4; }
                 100% { background-color: transparent; }
             }
+            .table-container {
+                margin: 10px 0;
+                overflow-x: auto;
+            }
+            .data-table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 5px 0;
+            }
+            .data-table th, .data-table td {
+                border: 1px solid #ddd;
+                padding: 4px 8px;
+                text-align: left;
+            }
+            .data-table th {
+                background-color: #f2f2f2;
+                font-weight: bold;
+            }
+            .data-table tr:nth-child(even) {
+                background-color: #f9f9f9;
+            }
         </style>
         <script>
         var globalDetailStates = {};
@@ -141,12 +163,34 @@ def get_constant_html_template():
             var name = data.name || 'unknown';
             var stringRepr = data.string_repr || '';
             var children = data.children || [];
+            var tableData = data.table_data || null;
             
             var nodeId = ('node_' + path + '_' + name).replace(/[ .]/g, '_');
             
             var html = '<div class="node" data-path="' + path + '" data-value="' + stringRepr + '"><strong>' + name + '</strong>: <span class="value-span">' + stringRepr + '</span>';
             
-            if (children.length > 0) {
+            if (tableData) {
+                html += '<div class="table-container">';
+                html += '<table class="data-table">';
+                
+                // Header row
+                html += '<tr><th>Index</th>';
+                for (var i = 0; i < tableData.headers.length; i++) {
+                    html += '<th>' + tableData.headers[i] + '</th>';
+                }
+                html += '</tr>';
+                
+                // Data rows
+                for (var i = 0; i < tableData.rows.length; i++) {
+                    var row = tableData.rows[i];
+                    html += '<tr data-path="' + path + '_' + i + '"><td>' + i + '</td>';
+                    for (var j = 0; j < row.length; j++) {
+                        html += '<td data-path="' + path + '_' + i + '_' + j + '">' + row[j] + '</td>';
+                    }
+                    html += '</tr>';
+                }
+                html += '</table></div>';
+            } else if (children.length > 0) {
                 html += '<details id="' + nodeId + '">';
                 html += '<summary>(' + children.length + ')</summary>';
                 html += '<div class="children">';
@@ -359,7 +403,21 @@ def object_vis(value):
 
     return str(value)
 
-def list_vis(value, expression=""):
+def get_string_from_value(result):
+    result_type = result.GetTypeName()
+
+    if result_type == 'char':
+        result_numerical_value = result.GetValueAsSigned()
+        result = chr(result_numerical_value)
+        result_str = result
+    else:
+        result_wrapped = codelldb.value.Value(result)
+        result_str = str(result_wrapped)
+        if result_str == "":
+            result_str = str(result)
+    return result_str
+
+def list_vis(value, *expressions):
     import json
     
     global value_to_webview_map, previous_list_sizes
@@ -378,47 +436,63 @@ def list_vis(value, expression=""):
     if storage_key not in previous_list_sizes:
         previous_list_sizes[storage_key] = {}
     
+    
     list_data = {
         'name': variable_name,
         'string_repr': f"size={list_size}",
         'children': []
     }
     
-    for i in range(list_size):
-        if expression and expression.strip():
-            evaluated_expression = expression.replace('$', f"{variable_name}[{i}]")
-            try:
-                result = frame.EvaluateExpression(evaluated_expression)
-                result_type = result.GetTypeName()
-
-                if result_type == 'char': # display the characters instead of their ascii values
-                    result_numerical_value = result.GetValueAsSigned()
-                    result = chr(result_numerical_value)
-                    result_str = result
-                else:
-                    result = type(value)(result)
-                    result_str = str(result)
-            except Exception as e:
-                result_str = f"Error: {str(e)}"
-            
-            child_data = {
-                'name': f"[{i}]",
-                'string_repr': result_str,
-                'children': []
-            }
-        else:
-            item = frame.EvaluateExpression(f"{variable_name}[{i}]")
-            item_wrapped = type(value)(item)
-            child_data = value_to_dict(item_wrapped)
-            if isinstance(child_data, dict):
-                child_data['name'] = f"[{i}]"
-            else:
+    # If multiple expressions, use table format
+    if len(expressions) > 1:
+        table_data = {
+            'headers': expressions,
+            'rows': []
+        }
+        
+        for i in range(list_size):
+            row = []
+            for expr in expressions:
+                evaluated_expression = expr.replace('$', f"{variable_name}[{i}]")
+                try:
+                    result = frame.EvaluateExpression(evaluated_expression)
+                    result_str = get_string_from_value(result)
+                except Exception as e:
+                    result_str = f"Error: {str(e)}"
+                
+                row.append(result_str)
+            table_data['rows'].append(row)
+        
+        list_data['table_data'] = table_data
+    else:
+        # Single expression or no expression - use existing format
+        for i in range(list_size):
+            if expressions:
+                evaluated_expression = expressions[0].replace('$', f"{variable_name}[{i}]")
+                try:
+                    result = frame.EvaluateExpression(evaluated_expression)
+                    result_str = get_string_from_value(result)
+                except Exception as e:
+                    result_str = f"Error: {str(e)}"
+                
                 child_data = {
                     'name': f"[{i}]",
-                    'string_repr': str(item),
+                    'string_repr': result_str,
                     'children': []
                 }
-        list_data['children'].append(child_data)
+            else:
+                item = frame.EvaluateExpression(f"{variable_name}[{i}]")
+                item_wrapped = type(value)(item)
+                child_data = value_to_dict(item_wrapped)
+                if isinstance(child_data, dict):
+                    child_data['name'] = f"[{i}]"
+                else:
+                    child_data = {
+                        'name': f"[{i}]",
+                        'string_repr': str(item),
+                        'children': []
+                    }
+            list_data['children'].append(child_data)
     
     if variable_name in value_to_webview_map:
         webview = value_to_webview_map[variable_name]
@@ -439,4 +513,5 @@ def list_vis(value, expression=""):
         }
         webview.post_message(json.dumps(message))
 
-    return f"List visualization created (size: {list_size})"
+    expression_info = f" with {len(expressions)} expressions" if expressions else ""
+    return f"List visualization created (size: {list_size}){expression_info}"
