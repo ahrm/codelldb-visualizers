@@ -173,23 +173,6 @@ def get_constant_html_template():
                 min-width: 150px;
                 flex: 1;
             }
-            .filter-controls button {
-                padding: 4px 12px;
-                border: 1px solid #007acc;
-                border-radius: 3px;
-                background-color: #007acc;
-                color: white;
-                cursor: pointer;
-                font-family: monospace;
-                font-size: 12px;
-                transition: background-color 0.2s;
-            }
-            .filter-controls button:hover {
-                background-color: #005a9e;
-            }
-            .filter-controls button:active {
-                background-color: #004577;
-            }
             .filter-label {
                 font-size: 12px;
                 color: #666;
@@ -225,13 +208,12 @@ def get_constant_html_template():
             if (tableData) {
                 // --- Filter controls for this table ---
                 html += '<div class="filter-controls" data-path="' + path + '" style="margin-bottom:5px;">';
-                html += '<select class="filter-column">';
+                html += '<select class="filter-column" onchange="applyFilter(\\'' + path + '\\', this)">';
                 for (var h = 0; h < tableData.headers.length; h++) {
                     html += '<option value="' + (h+1) + '">' + tableData.headers[h] + '</option>';
                 }
                 html += '</select>';
-                html += '<input type="text" class="filter-input" placeholder="Filter value" />';
-                html += '<button onclick="applyFilter(\\'' + path + '\\', this)">Filter</button>';
+                html += '<input type="text" class="filter-input" placeholder="Filter value" oninput="applyFilter(\\'' + path + '\\', this)" />';
                 html += '</div>';
                 html += '<div class="table-container">';
                 html += '<table class="data-table">';
@@ -256,8 +238,7 @@ def get_constant_html_template():
             } else if (children.length > 0) {
                 // New filter controls for non-table lists
                 html += '<div class="filter-controls" data-path="' + path + '" style="margin-bottom:5px;">';
-                html += '<input type="text" class="filter-input" placeholder="Filter items" />';
-                html += '<button onclick="applyFilter(\\'' + path + '\\', this)">Filter</button>';
+                html += '<input type="text" class="filter-input" placeholder="Filter items" oninput="applyFilter(\\'' + path + '\\', this)" />';
                 html += '</div>';
                 html += '<details id="' + nodeId + '">';
                 html += '<summary>(' + children.length + ')</summary>';
@@ -273,8 +254,8 @@ def get_constant_html_template():
         }
         
         // --- Client‐side filter function ---
-        function applyFilter(path, btn) {
-            var controls = btn.parentElement;
+        function applyFilter(path, element) {
+            var controls = element.closest('.filter-controls');
             var filterText = controls.querySelector('input.filter-input').value;
             var container = controls.nextElementSibling;
             var table = container.querySelector('table.data-table');
@@ -324,8 +305,7 @@ def get_constant_html_template():
                    selectElement.value = fs.colIndex - 1; // Convert back to 0-indexed for select options
                }
                controls.querySelector('input.filter-input').value = fs.filterText;
-               var btn = controls.querySelector('button');
-               applyFilter(path, btn);
+               applyFilter(path, controls.querySelector('input.filter-input'));
            }
         }
 
