@@ -267,7 +267,10 @@ def get_constant_html_template():
                var controls = document.querySelector('.filter-controls[data-path="' + path + '"]');
                if (!controls) continue;
                var fs = filterSettings[path];
-               controls.querySelector('select.filter-column').value = fs.colIndex;
+               var selectElement = controls.querySelector('select.filter-column');
+               if (selectElement) {
+                   selectElement.value = fs.colIndex - 1; // Convert back to 0-indexed for select options
+               }
                controls.querySelector('input.filter-input').value = fs.filterText;
                var btn = controls.querySelector('button');
                applyFilter(path, btn);
