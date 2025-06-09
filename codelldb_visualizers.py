@@ -150,6 +150,7 @@ def get_constant_html_template():
         var currentStorageKey = '';
         var previousData = {};
         var previousListSizes = {};
+        var filterSettings = {};  // store per‐table filter selections
         
         function buildHtmlFromData(data, path = "") {
             if (typeof data === 'string') {
@@ -170,6 +171,16 @@ def get_constant_html_template():
             var html = '<div class="node" data-path="' + path + '" data-value="' + stringRepr + '"><strong>' + name + '</strong>: <span class="value-span">' + stringRepr + '</span>';
             
             if (tableData) {
+                // --- Filter controls for this table ---
+                html += '<div class="filter-controls" data-path="' + path + '" style="margin-bottom:5px;">';
+                html += '<select class="filter-column">';
+                for (var h = 0; h < tableData.headers.length; h++) {
+                    html += '<option value="' + (h+1) + '">' + tableData.headers[h] + '</option>';
+                }
+                html += '</select>';
+                html += '<input type="text" class="filter-input" placeholder="Filter value" />';
+                html += '<button onclick="applyFilter(\\'' + path + '\\', this)">Filter</button>';
+                html += '</div>';
                 html += '<div class="table-container">';
                 html += '<table class="data-table">';
                 
@@ -204,6 +215,51 @@ def get_constant_html_template():
             return html;
         }
         
+        // --- Client‐side filter function ---
+        function applyFilter(path, btn) {
+            var controls = btn.parentElement;
+            var filterText = controls.querySelector('input.filter-input').value;
+            var colIndex = parseInt(controls.querySelector('select.filter-column').value) + 1;
+            console.log('col value:')
+            console.log(controls.querySelector('select.filter-column').value);
+            // remember this filter for future updates
+            filterSettings[path] = { colIndex: colIndex, filterText: filterText };
+            var container = controls.nextElementSibling;
+            var rows = container.querySelectorAll('table.data-table tr');
+            for (var i = 1; i < rows.length; i++) {
+                var cells = rows[i].querySelectorAll('td');
+                var show = false;
+                if (!filterText) {
+                    show = true;
+                } else if (colIndex === -1) {
+                    // any cell match
+                    for (var j = 0; j < cells.length; j++) {
+                        if (cells[j].textContent === filterText) {
+                            show = true; break;
+                        }
+                    }
+                } else if (colIndex > 0 && colIndex <= cells.length) {
+                    if (cells[colIndex - 1].textContent === filterText) {
+                        show = true;
+                    }
+                }
+                rows[i].style.display = show ? '' : 'none';
+            }
+        }
+        
+        // --- reapply saved filters after re-render ---
+        function reapplyFilters() {
+           for (var path in filterSettings) {
+               var controls = document.querySelector('.filter-controls[data-path="' + path + '"]');
+               if (!controls) continue;
+               var fs = filterSettings[path];
+               controls.querySelector('select.filter-column').value = fs.colIndex;
+               controls.querySelector('input.filter-input').value = fs.filterText;
+               var btn = controls.querySelector('button');
+               applyFilter(path, btn);
+           }
+        }
+
         function checkForChanges(data, path = "") {
             var changed = [];
             var newElements = [];
@@ -354,6 +410,7 @@ def get_constant_html_template():
             contentDiv.innerHTML = buildHtmlFromData(data);
             restoreState();
             attachToggleListeners();
+            reapplyFilters();  // restore filters on every update
             if (changeInfo.changed.length > 0 || changeInfo.newElements.length > 0) {
                 flashElements(changeInfo.changed, changeInfo.newElements);
             }
