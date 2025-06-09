@@ -144,6 +144,58 @@ def get_constant_html_template():
             .data-table tr:nth-child(even) {
                 background-color: #2a2a2a;
             }
+            .filter-controls {
+                background-color: #f5f5f5;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .filter-controls select.filter-column {
+                padding: 4px 8px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                background-color: white;
+                font-family: monospace;
+                font-size: 12px;
+                min-width: 120px;
+            }
+            .filter-controls input.filter-input {
+                padding: 4px 8px;
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                font-family: monospace;
+                font-size: 12px;
+                min-width: 150px;
+                flex: 1;
+            }
+            .filter-controls button {
+                padding: 4px 12px;
+                border: 1px solid #007acc;
+                border-radius: 3px;
+                background-color: #007acc;
+                color: white;
+                cursor: pointer;
+                font-family: monospace;
+                font-size: 12px;
+                transition: background-color 0.2s;
+            }
+            .filter-controls button:hover {
+                background-color: #005a9e;
+            }
+            .filter-controls button:active {
+                background-color: #004577;
+            }
+            .filter-label {
+                font-size: 12px;
+                color: #666;
+                font-weight: bold;
+                white-space: nowrap;
+            }
         </style>
         <script>
         var globalDetailStates = {};
