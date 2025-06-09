@@ -1,7 +1,7 @@
 
 # CodeLLDB Visualizers
 
-Some visualizer utils for codelldb. Allows visualizing deep properties within lists. For example, `lv($list, "$.someprop")` displays the value of `someprop` for each element in the list. You can also chain or call methods, for example, `lv($list, "$.prop1.prop2.method()")` shows the result of calling `method` on `prop1.prop2` of every element in the list.
+Some visualizer utils for [codelldb](https://github.com/vadimcn/codelldb). Allows visualizing deep properties within lists. For example, `lv($list, "$.someprop")` displays the value of `someprop` for each element in the list. You can also chain or call methods, for example, `lv($list, "$.prop1.prop2.method()")` shows the result of calling `method` on `prop1.prop2` of every element in the list.
 
 
 https://github.com/user-attachments/assets/1756cd5a-02e3-418c-884e-0f85b8e2aa14
