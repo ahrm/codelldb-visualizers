@@ -306,7 +306,7 @@ def string_vis(value):
 
     return str(value)
 
-def list_vis(value):
+def list_vis(value, expression=""):
     import json
     
     global value_to_webview_map
@@ -330,19 +330,36 @@ def list_vis(value):
     
     # Add each list element as a child
     for i in range(list_size):
-        item = frame.EvaluateExpression(f"{variable_name}[{i}]")
-        item_wrapped = type(value)(item)
-        child_data = value_to_dict(item_wrapped)
-        # Override name to show index
-        if isinstance(child_data, dict):
-            child_data['name'] = f"[{i}]"
-        else:
-            # If value_to_dict returned a string (error), create proper structure
+        if expression and expression.strip():
+            # Use expression evaluation with $ placeholder
+            evaluated_expression = expression.replace('$', f"{variable_name}[{i}]")
+            try:
+                result = frame.EvaluateExpression(evaluated_expression)
+                result = type(value)(result) # convert result to codelldb.value.Value type
+                result_str = str(result)
+            except Exception as e:
+                result_str = f"Error: {str(e)}"
+            
             child_data = {
                 'name': f"[{i}]",
-                'string_repr': str(item),
+                'string_repr': result_str,
                 'children': []
             }
+        else:
+            # Original behavior - show actual list elements
+            item = frame.EvaluateExpression(f"{variable_name}[{i}]")
+            item_wrapped = type(value)(item)
+            child_data = value_to_dict(item_wrapped)
+            # Override name to show index
+            if isinstance(child_data, dict):
+                child_data['name'] = f"[{i}]"
+            else:
+                # If value_to_dict returned a string (error), create proper structure
+                child_data = {
+                    'name': f"[{i}]",
+                    'string_repr': str(item),
+                    'children': []
+                }
         list_data['children'].append(child_data)
     
     if variable_name in value_to_webview_map:
