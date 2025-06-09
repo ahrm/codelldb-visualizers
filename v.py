@@ -305,3 +305,21 @@ def string_vis(value):
         webview.post_message(json.dumps(message))
 
     return str(value)
+
+def list_vis(value):
+    target = lldb.debugger.GetSelectedTarget()
+    process = target.GetProcess()
+    thread = process.GetSelectedThread()
+    frame = thread.GetSelectedFrame()
+
+    unwrapped = value.unwrap(value)
+    variable_name = unwrapped.GetName()
+
+    list_size = frame.EvaluateExpression(f"{variable_name}.size()").GetValueAsUnsigned()
+    res = ""
+    for i in range(list_size):
+        item = frame.EvaluateExpression(f"{variable_name}[{i}]")
+        res += str(item)
+
+    return res
+    # return f"Size: {list_size}"
