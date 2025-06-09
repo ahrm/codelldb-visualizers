@@ -3,6 +3,10 @@
 
 Some visualizer utils for codelldb. Allows visualizing deep properties within lists.
 
+
+https://github.com/user-attachments/assets/1756cd5a-02e3-418c-884e-0f85b8e2aa14
+
+
 # Setup
 
 Here is an example setup in `launch.json`:
