@@ -307,6 +307,10 @@ def string_vis(value):
     return str(value)
 
 def list_vis(value):
+    import json
+    
+    global value_to_webview_map
+    
     target = lldb.debugger.GetSelectedTarget()
     process = target.GetProcess()
     thread = process.GetSelectedThread()
@@ -316,10 +320,51 @@ def list_vis(value):
     variable_name = unwrapped.GetName()
 
     list_size = frame.EvaluateExpression(f"{variable_name}.size()").GetValueAsUnsigned()
-    res = ""
+    
+    # Create dictionary structure for the list
+    list_data = {
+        'name': variable_name,
+        'string_repr': f"size={list_size}",
+        'children': []
+    }
+    
+    # Add each list element as a child
     for i in range(list_size):
         item = frame.EvaluateExpression(f"{variable_name}[{i}]")
-        res += str(item)
+        item_wrapped = type(value)(item)
+        child_data = value_to_dict(item_wrapped)
+        # Override name to show index
+        if isinstance(child_data, dict):
+            child_data['name'] = f"[{i}]"
+        else:
+            # If value_to_dict returned a string (error), create proper structure
+            child_data = {
+                'name': f"[{i}]",
+                'string_repr': str(item),
+                'children': []
+            }
+        list_data['children'].append(child_data)
+    
+    if variable_name in value_to_webview_map:
+        webview = value_to_webview_map[variable_name]
+        # Send data via postMessage
+        message = {
+            'type': 'updateData',
+            'data': list_data,
+            'storageKey': f'detailsState_{variable_name}'
+        }
+        webview.post_message(json.dumps(message))
+    else:
+        # Create new webview with constant HTML template
+        webview = debugger.create_webview(get_constant_html_template(), view_column=2, enable_scripts=True)
+        value_to_webview_map[variable_name] = webview
+        
+        # Send initial data
+        message = {
+            'type': 'updateData',
+            'data': list_data,
+            'storageKey': f'detailsState_{variable_name}'
+        }
+        webview.post_message(json.dumps(message))
 
-    return res
-    # return f"Size: {list_size}"
+    return f"List visualization created (size: {list_size})"
