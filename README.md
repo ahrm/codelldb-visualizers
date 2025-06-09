@@ -30,3 +30,6 @@ Here is an example setup in `launch.json`:
       ],
     },
 ```
+
+# Usage
+In the watch window add something like: `/py lv($list, "$.prop")`. The `/py` tells codelldb to evaluate the following as a python expression. `lv` is the alias defined in the `launch.json` for `codelldb_visualizers.list_vis`. `$list` is the name of the `c++` list variable that you want to inspect with a `$` prefix (the variables in c++ are also defined in `codelldb`'s python side but with a `$` prefix). And `"$.prop"` is the expression that you want to evaluate for each element of the list (`$` is replaced with each element in the list).
