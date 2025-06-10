@@ -510,7 +510,7 @@ def object_vis(value):
     return str(value)
 
 def get_string_from_value(result):
-    result_type = result.GetTypeName()
+    result_type = result.GetType().GetCanonicalType().GetName()
 
     if result_type == 'char':
         result_numerical_value = result.GetValueAsSigned()
@@ -523,6 +523,65 @@ def get_string_from_value(result):
             result_str = str(result)
     return result_str
 
+cached_compiled_expressions = []
+
+def get_list_expression_evaluator(frame, container_expr, expr):
+    global cached_compiled_expressions
+
+    for cached_frame, cached_container_exp, cached_expr, cached_result in cached_compiled_expressions:
+        if cached_frame == frame and cached_container_exp == container_expr.GetName() and cached_expr == expr:
+            return cached_result
+
+    # expr = "$[$.sizse()-1]"
+    cxx = f"""
+    []({container_expr.GetTypeName()} &c) {{
+        auto temp = {expr.replace('$', 'c[0]')};
+        using T = decltype(temp);
+        static T res[1000];
+
+        int max_iter = c.size() < 1000 ? c.size() : 1000;
+        for (int i = 0; i < c.size(); ++i) {{
+            res[i] = {expr.replace('$', 'c[i]')};
+        }}
+        return res;
+    }};
+    """
+    opts = lldb.SBExpressionOptions()
+    opts.SetLanguage(lldb.eLanguageTypeC_plus_plus)
+
+    result = frame.EvaluateExpression(cxx, opts)
+    if not result.error.Success():
+        raise RuntimeError("Failed to inject batch helper: " + result.error.GetCString())
+
+    cached_compiled_expressions.append((frame, container_expr.GetName(), expr, result))
+    return result
+
+def get_expression_string_values_for_list(target, frame, value, expression):
+    try:
+        container_size = frame.EvaluateExpression(f"{value.unwrap(value).GetName()}.size()").GetValueAsSigned()
+        evaluator_lambda = get_list_expression_evaluator(frame, value.unwrap(value), expression)
+        evaluated = frame.EvaluateExpression(f'{evaluator_lambda.GetName()}({value.unwrap(value).GetName()})')
+        ptr_type = evaluated.GetType()
+        element_type = ptr_type.GetPointeeType()
+        element_size = element_type.GetByteSize()
+        start_address = evaluated.GetValueAsUnsigned()
+
+        string_list = []
+        for i in range(container_size):
+            address = start_address + i * element_size
+            value_name = f'{value.unwrap(value).GetName()}[{i}]'
+            element_sbvalue = target.CreateValueFromAddress(f"{expression}", lldb.SBAddress(address, target), element_type)
+            element_string = get_string_from_value(element_sbvalue)
+            string_list.append(element_string)
+
+            # we can't rely on type name because it just returns "T"
+            # print(element_type.GetCanonicalType())
+            # is_type_char = # todo
+
+        return string_list
+    except Exception as e:
+        return str(e)
+
 def list_vis(value, *expressions):
     import json
     
@@ -532,6 +591,7 @@ def list_vis(value, *expressions):
     process = target.GetProcess()
     thread = process.GetSelectedThread()
     frame = thread.GetSelectedFrame()
+
 
     unwrapped = value.unwrap(value)
     variable_name = unwrapped.GetName()
