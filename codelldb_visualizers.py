@@ -615,38 +615,32 @@ def list_vis(value, *expressions):
             'headers': expressions,
             'rows': []
         }
-        
+        # Bulk evaluate each expression for all elements
+        expr_values = []
+        for expr in expressions:
+            vals = get_expression_string_values_for_list(target, frame, value, expr)
+            # if error returned as string, replicate it for each index
+            expr_values.append(vals if isinstance(vals, list) else [str(vals)] * list_size)
+        # Transpose into rows
         for i in range(list_size):
-            row = []
-            for expr in expressions:
-                evaluated_expression = expr.replace('$', f"{variable_name}[{i}]")
-                try:
-                    result = frame.EvaluateExpression(evaluated_expression)
-                    result_str = get_string_from_value(result)
-                except Exception as e:
-                    result_str = f"Error: {str(e)}"
-                
-                row.append(result_str)
+            row = [expr_values[j][i] for j in range(len(expressions))]
             table_data['rows'].append(row)
-        
         list_data['table_data'] = table_data
     else:
-        # Single expression or no expression - use existing format
-        for i in range(list_size):
-            if expressions:
-                evaluated_expression = expressions[0].replace('$', f"{variable_name}[{i}]")
-                try:
-                    result = frame.EvaluateExpression(evaluated_expression)
-                    result_str = get_string_from_value(result)
-                except Exception as e:
-                    result_str = f"Error: {str(e)}"
-                
+        # Single expression or no expression - use faster bulk eval if one expression
+        if expressions:
+            # Bulk evaluate single expression
+            vals = get_expression_string_values_for_list(target, frame, value, expressions[0])
+            for i, result_str in enumerate(vals if isinstance(vals, list) else [str(vals)] * list_size):
                 child_data = {
                     'name': f"[{i}]",
                     'string_repr': result_str,
                     'children': []
                 }
-            else:
+                list_data['children'].append(child_data)
+        else:
+            # No expression: fallback to existing per-element dict conversion
+            for i in range(list_size):
                 item = frame.EvaluateExpression(f"{variable_name}[{i}]")
                 item_wrapped = type(value)(item)
                 child_data = value_to_dict(item_wrapped)
@@ -658,7 +652,7 @@ def list_vis(value, *expressions):
                         'string_repr': str(item),
                         'children': []
                     }
-            list_data['children'].append(child_data)
+                list_data['children'].append(child_data)
     
     if variable_name in value_to_webview_map:
         webview = value_to_webview_map[variable_name]
