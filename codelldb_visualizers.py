@@ -8,6 +8,8 @@ import time
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
+type_visualizers = dict()
+
 def show_pixmap(pixmap, column=2):
     import numpy as np
 
@@ -512,7 +514,9 @@ def object_vis(value):
 def get_string_from_value(result):
     result_type = result.GetType().GetCanonicalType().GetName()
 
-    if result_type == 'char':
+    if result_type in type_visualizers:
+        return type_visualizers[result_type](result)
+    elif result_type == 'char':
         result_numerical_value = result.GetValueAsSigned()
         result = chr(result_numerical_value)
         result_str = result
