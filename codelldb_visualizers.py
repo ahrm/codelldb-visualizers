@@ -10,17 +10,18 @@ import matplotlib.pyplot as plt
 
 type_visualizers = dict()
 
-def show_pixmap(pixmap, column=2):
+def show_pixmap(target, pixmap, column=2):
     import numpy as np
 
-    target = lldb.debugger.GetSelectedTarget()
+    # target = lldb.debugger.GetSelectedTarget()
 
-    pixmap_name = pixmap.unwrap(pixmap).GetName()
+    pixmap_name = pixmap.GetName()
     process = target.GetProcess()
     thread = process.GetSelectedThread()
     frame = thread.GetSelectedFrame()
     
     image = frame.EvaluateExpression(f"{pixmap_name}.toImage()")
+
     image_width = frame.EvaluateExpression(f"{image.GetName()}.width()").GetValueAsSigned()
     image_height = frame.EvaluateExpression(f"{image.GetName()}.height()").GetValueAsSigned()
 
@@ -37,11 +38,15 @@ def show_pixmap(pixmap, column=2):
     plt.imshow(image_array)
     image_bytes = io.BytesIO()
     plt.savefig(image_bytes, format='png')
-    document = '<html><img src="data:image/png;base64,%s"></html>' % base64.b64encode(image_bytes.getvalue()).decode('utf-8')
-    debugger.create_webview(document, view_column=column)
+    res = '<img src="data:image/png;base64,%s">' % base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+    return res
+    # document = '<html><img src="data:image/png;base64,%s"></html>' % base64.b64encode(image_bytes.getvalue()).decode('utf-8')
+    # debugger.create_webview(document, view_column=column)
 
 
-    return str(image_array.shape)
+    # return str(image_array.shape)
+
+type_visualizers['QPixmap'] = show_pixmap
 
 # index = 0
 value_to_webview_map = dict()
@@ -511,11 +516,11 @@ def object_vis(value):
 
     return str(value)
 
-def get_string_from_value(result):
+def get_string_from_value(target, result):
     result_type = result.GetType().GetCanonicalType().GetName()
 
     if result_type in type_visualizers:
-        return type_visualizers[result_type](result)
+        return type_visualizers[result_type](target, result)
     elif result_type == 'char':
         result_numerical_value = result.GetValueAsSigned()
         result = chr(result_numerical_value)
@@ -525,46 +530,105 @@ def get_string_from_value(result):
         result_str = str(result_wrapped)
         if result_str == "":
             result_str = str(result)
+            # print only the value and not the type name
+            # find the first index of "=" and slice from there
+            first_equal_index = result_str.find('=')
+            if first_equal_index != -1:
+                result_str = result_str[first_equal_index + 1:].strip()
+            else:
+                result_str = result_str.strip()
+            
     return result_str
 
 cached_compiled_expressions = []
 
-def get_list_expression_evaluator(frame, container_expr, expr):
-    global cached_compiled_expressions
+# def get_list_expression_evaluator(frame, container_expr, expr):
+#     global cached_compiled_expressions
 
-    for cached_frame, cached_container_exp, cached_expr, cached_result in cached_compiled_expressions:
-        if cached_frame == frame and cached_container_exp == container_expr.GetName() and cached_expr == expr:
-            return cached_result
+#     for cached_frame, cached_container_exp, cached_expr, cached_result in cached_compiled_expressions:
+#         if cached_frame == frame and cached_container_exp == container_expr.GetName() and cached_expr == expr:
+#             return cached_result
 
-    # expr = "$[$.sizse()-1]"
-    cxx = f"""
-    []({container_expr.GetTypeName()} &c) {{
-        auto temp = {expr.replace('$', 'c[0]')};
-        using T = decltype(temp);
-        static T res[1000];
+#     # expr = "$[$.sizse()-1]"
+#     cxx = f"""
+#     []({container_expr.GetTypeName()} &c) {{
+#         auto temp = {expr.replace('$', 'c[0]')};
+#         using T = decltype(temp);
+#         static T res[1000];
 
-        int max_iter = c.size() < 1000 ? c.size() : 1000;
-        for (int i = 0; i < c.size(); ++i) {{
-            res[i] = {expr.replace('$', 'c[i]')};
-        }}
-        return res;
-    }};
-    """
-    opts = lldb.SBExpressionOptions()
-    opts.SetLanguage(lldb.eLanguageTypeC_plus_plus)
+#         int max_iter = c.size() < 1000 ? c.size() : 1000;
+#         for (int i = 0; i < c.size(); ++i) {{
+#             res[i] = {expr.replace('$', 'c[i]')};
+#         }}
+#         return res;
+#     }};
+#     """
+#     opts = lldb.SBExpressionOptions()
+#     opts.SetLanguage(lldb.eLanguageTypeC_plus_plus)
 
-    result = frame.EvaluateExpression(cxx, opts)
-    if not result.error.Success():
-        raise RuntimeError("Failed to inject batch helper: " + result.error.GetCString())
+#     result = frame.EvaluateExpression(cxx, opts)
+#     if not result.error.Success():
+#         raise RuntimeError("Failed to inject batch helper: " + result.error.GetCString())
 
-    cached_compiled_expressions.append((frame, container_expr.GetName(), expr, result))
-    return result
+#     cached_compiled_expressions.append((frame, container_expr.GetName(), expr, result))
+#     return result
+
+# def get_expression_string_values_for_list(target, frame, value, expression):
+#     try:
+#         container_size = frame.EvaluateExpression(f"{value.unwrap(value).GetName()}.size()").GetValueAsSigned()
+#         evaluator_lambda = get_list_expression_evaluator(frame, value.unwrap(value), expression)
+#         evaluated = frame.EvaluateExpression(f'{evaluator_lambda.GetName()}({value.unwrap(value).GetName()})')
+#         ptr_type = evaluated.GetType()
+#         element_type = ptr_type.GetPointeeType()
+#         element_size = element_type.GetByteSize()
+#         start_address = evaluated.GetValueAsUnsigned()
+
+#         string_list = []
+#         for i in range(container_size):
+#             address = start_address + i * element_size
+#             value_name = f'{value.unwrap(value).GetName()}[{i}]'
+#             element_sbvalue = target.CreateValueFromAddress(f"{expression}", lldb.SBAddress(address, target), element_type)
+#             element_string = get_string_from_value(element_sbvalue)
+#             string_list.append(element_string)
+
+#             # we can't rely on type name because it just returns "T"
+#             # print(element_type.GetCanonicalType())
+#             # is_type_char = # todo
+
+#         return string_list
+#     except Exception as e:
+#         return str(e)
+
+count = 0
 
 def get_expression_string_values_for_list(target, frame, value, expression):
+    global count
+    count += 1
+    container_size = frame.EvaluateExpression(f"{value.unwrap(value).GetName()}.size()").GetValueAsSigned()
+
     try:
-        container_size = frame.EvaluateExpression(f"{value.unwrap(value).GetName()}.size()").GetValueAsSigned()
-        evaluator_lambda = get_list_expression_evaluator(frame, value.unwrap(value), expression)
-        evaluated = frame.EvaluateExpression(f'{evaluator_lambda.GetName()}({value.unwrap(value).GetName()})')
+        cxx = f"""
+        auto& c = {value.unwrap(value).GetName()};
+        auto& data_ptr = c.__begin_;
+        auto temp = {expression.replace('$', 'data_ptr[0]')};
+        using T_{count} = decltype(temp);
+        static char buffer_{count}[sizeof(T_{count}) * 1000];
+        T_{count}* res_{count} = (T_{count}*)((void*)&buffer_{count}[0]);
+
+        int max_iter_{count} = c.size() < 1000 ? c.size() : 1000;
+        for (int i = 0; i < max_iter_{count}; ++i) {{
+            res_{count}[i] = {expression.replace('$', 'data_ptr[i]')};
+        }}
+        (T_{count}*)&res_{count}[0];
+        """
+
+        opts = lldb.SBExpressionOptions()
+        opts.SetLanguage(lldb.eLanguageTypeC_plus_plus)
+        opts.SetUnwindOnError(True)
+        opts.SetIgnoreBreakpoints(True)
+
+        evaluated = frame.EvaluateExpression(cxx)
+
         ptr_type = evaluated.GetType()
         element_type = ptr_type.GetPointeeType()
         element_size = element_type.GetByteSize()
@@ -573,18 +637,18 @@ def get_expression_string_values_for_list(target, frame, value, expression):
         string_list = []
         for i in range(container_size):
             address = start_address + i * element_size
-            value_name = f'{value.unwrap(value).GetName()}[{i}]'
-            element_sbvalue = target.CreateValueFromAddress(f"{expression}", lldb.SBAddress(address, target), element_type)
-            element_string = get_string_from_value(element_sbvalue)
+            element_sbvalue = target.CreateValueFromAddress(f"var_{count}_{i}", lldb.SBAddress(address, target), element_type)
+            element_string = get_string_from_value(target, element_sbvalue)
             string_list.append(element_string)
-
-            # we can't rely on type name because it just returns "T"
-            # print(element_type.GetCanonicalType())
-            # is_type_char = # todo
 
         return string_list
     except Exception as e:
-        return str(e)
+        res = []
+        for i in range(container_size):
+            ith_value = target.EvaluateExpression(f"{expression.replace('$', f'{value.unwrap(value).GetName()}[{i}]')}")
+            ith_string = get_string_from_value(target, ith_value)
+            res.append(ith_string)
+        return res
 
 def list_vis(value, *expressions):
     import json
