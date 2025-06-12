@@ -612,14 +612,18 @@ def get_expression_string_values_for_list(target, frame, value, expression):
         auto& data_ptr = c.__begin_;
         auto temp = {expression.replace('$', 'data_ptr[0]')};
         using T_{count} = decltype(temp);
-        static char buffer_{count}[sizeof(T_{count}) * 1000];
+        // static char buffer_{count}[sizeof(T_{count}) * 1000];
+        // char* buffer_{count} = new char[sizeof(T_{count}) * 1000];
+        char* buffer_{count} = (char*)malloc(sizeof(T_{count}) * 1000);
         T_{count}* res_{count} = (T_{count}*)((void*)&buffer_{count}[0]);
+        // T_{count}* res_{count} = new T_{count}[1000];
 
         int max_iter_{count} = c.size() < 1000 ? c.size() : 1000;
         for (int i = 0; i < max_iter_{count}; ++i) {{
             res_{count}[i] = {expression.replace('$', 'data_ptr[i]')};
         }}
-        (T_{count}*)&res_{count}[0];
+        //(T_{count}*)&res_{count}[0];
+        &res_{count}[0];
         """
 
         opts = lldb.SBExpressionOptions()
@@ -633,6 +637,8 @@ def get_expression_string_values_for_list(target, frame, value, expression):
         element_type = ptr_type.GetPointeeType()
         element_size = element_type.GetByteSize()
         start_address = evaluated.GetValueAsUnsigned()
+        ptr_val = evaluated.GetValue()
+        # print('ptr val:', ptr_val)
 
         string_list = []
         for i in range(container_size):
@@ -640,6 +646,12 @@ def get_expression_string_values_for_list(target, frame, value, expression):
             element_sbvalue = target.CreateValueFromAddress(f"var_{count}_{i}", lldb.SBAddress(address, target), element_type)
             element_string = get_string_from_value(target, element_sbvalue)
             string_list.append(element_string)
+        
+        element_type_name = element_type.GetName()
+        delete_cxx = f"(void)free((void*){start_address});"
+        delete_result = frame.EvaluateExpression(delete_cxx, opts)
+        # if not delete_result.error.Success():
+        #     print("Failed to delete buffer:", delete_result.error.GetCString())
 
         return string_list
     except Exception as e:
@@ -651,95 +663,99 @@ def get_expression_string_values_for_list(target, frame, value, expression):
         return res
 
 def list_vis(value, *expressions):
-    import json
-    
-    global value_to_webview_map, previous_list_sizes
-    
-    target = lldb.debugger.GetSelectedTarget()
-    process = target.GetProcess()
-    thread = process.GetSelectedThread()
-    frame = thread.GetSelectedFrame()
+    try:
+        import json
+        
+        global value_to_webview_map, previous_list_sizes
+        
+        target = lldb.debugger.GetSelectedTarget()
+        process = target.GetProcess()
+        thread = process.GetSelectedThread()
+        frame = thread.GetSelectedFrame()
 
 
-    unwrapped = value.unwrap(value)
-    variable_name = unwrapped.GetName()
+        unwrapped = value.unwrap(value)
+        variable_name = unwrapped.GetName()
 
-    list_size = frame.EvaluateExpression(f"{variable_name}.size()").GetValueAsUnsigned()
-    
-    storage_key = f'detailsState_{variable_name}'
-    if storage_key not in previous_list_sizes:
-        previous_list_sizes[storage_key] = {}
-    
-    
-    list_data = {
-        'name': variable_name,
-        'string_repr': f"size={list_size}",
-        'children': []
-    }
-    
-    # If multiple expressions, use table format
-    if len(expressions) > 1:
-        table_data = {
-            'headers': expressions,
-            'rows': []
+        list_size = frame.EvaluateExpression(f"{variable_name}.size()").GetValueAsUnsigned()
+        
+        storage_key = f'detailsState_{variable_name}'
+        if storage_key not in previous_list_sizes:
+            previous_list_sizes[storage_key] = {}
+        
+        
+        list_data = {
+            'name': variable_name,
+            'string_repr': f"size={list_size}",
+            'children': []
         }
-        # Bulk evaluate each expression for all elements
-        expr_values = []
-        for expr in expressions:
-            vals = get_expression_string_values_for_list(target, frame, value, expr)
-            # if error returned as string, replicate it for each index
-            expr_values.append(vals if isinstance(vals, list) else [str(vals)] * list_size)
-        # Transpose into rows
-        for i in range(list_size):
-            row = [expr_values[j][i] for j in range(len(expressions))]
-            table_data['rows'].append(row)
-        list_data['table_data'] = table_data
-    else:
-        # Single expression or no expression - use faster bulk eval if one expression
-        if expressions:
-            # Bulk evaluate single expression
-            vals = get_expression_string_values_for_list(target, frame, value, expressions[0])
-            for i, result_str in enumerate(vals if isinstance(vals, list) else [str(vals)] * list_size):
-                child_data = {
-                    'name': f"[{i}]",
-                    'string_repr': result_str,
-                    'children': []
-                }
-                list_data['children'].append(child_data)
-        else:
-            # No expression: fallback to existing per-element dict conversion
+        
+        # If multiple expressions, use table format
+        if len(expressions) > 1:
+            table_data = {
+                'headers': expressions,
+                'rows': []
+            }
+            # Bulk evaluate each expression for all elements
+            expr_values = []
+            for expr in expressions:
+                vals = get_expression_string_values_for_list(target, frame, value, expr)
+                # if error returned as string, replicate it for each index
+                expr_values.append(vals if isinstance(vals, list) else [str(vals)] * list_size)
+            # Transpose into rows
             for i in range(list_size):
-                item = frame.EvaluateExpression(f"{variable_name}[{i}]")
-                item_wrapped = type(value)(item)
-                child_data = value_to_dict(item_wrapped)
-                if isinstance(child_data, dict):
-                    child_data['name'] = f"[{i}]"
-                else:
+                row = [expr_values[j][i] for j in range(len(expressions))]
+                table_data['rows'].append(row)
+            list_data['table_data'] = table_data
+        else:
+            # Single expression or no expression - use faster bulk eval if one expression
+            if expressions:
+                # Bulk evaluate single expression
+                vals = get_expression_string_values_for_list(target, frame, value, expressions[0])
+                for i, result_str in enumerate(vals if isinstance(vals, list) else [str(vals)] * list_size):
                     child_data = {
                         'name': f"[{i}]",
-                        'string_repr': str(item),
+                        'string_repr': result_str,
                         'children': []
                     }
-                list_data['children'].append(child_data)
-    
-    if variable_name in value_to_webview_map:
-        webview = value_to_webview_map[variable_name]
-        message = {
-            'type': 'updateData',
-            'data': list_data,
-            'storageKey': f'detailsState_{variable_name}'
-        }
-        webview.post_message(json.dumps(message))
-    else:
-        webview = debugger.create_webview(get_constant_html_template(), view_column=2, enable_scripts=True)
-        value_to_webview_map[variable_name] = webview
+                    list_data['children'].append(child_data)
+            else:
+                # No expression: fallback to existing per-element dict conversion
+                for i in range(list_size):
+                    item = frame.EvaluateExpression(f"{variable_name}[{i}]")
+                    item_wrapped = type(value)(item)
+                    child_data = value_to_dict(item_wrapped)
+                    if isinstance(child_data, dict):
+                        child_data['name'] = f"[{i}]"
+                    else:
+                        child_data = {
+                            'name': f"[{i}]",
+                            'string_repr': str(item),
+                            'children': []
+                        }
+                    list_data['children'].append(child_data)
         
-        message = {
-            'type': 'updateData',
-            'data': list_data,
-            'storageKey': f'detailsState_{variable_name}'
-        }
-        webview.post_message(json.dumps(message))
+        if variable_name in value_to_webview_map:
+            webview = value_to_webview_map[variable_name]
+            message = {
+                'type': 'updateData',
+                'data': list_data,
+                'storageKey': f'detailsState_{variable_name}'
+            }
+            webview.post_message(json.dumps(message))
+        else:
+            webview = debugger.create_webview(get_constant_html_template(), view_column=2, enable_scripts=True)
+            value_to_webview_map[variable_name] = webview
+            
+            message = {
+                'type': 'updateData',
+                'data': list_data,
+                'storageKey': f'detailsState_{variable_name}'
+            }
+            webview.post_message(json.dumps(message))
 
-    expression_info = f" with {len(expressions)} expressions" if expressions else ""
-    return f"List visualization created (size: {list_size}){expression_info}"
+        expression_info = f" with {len(expressions)} expressions" if expressions else ""
+        return f"List visualization created (size: {list_size}){expression_info}"
+    finally:
+        target = lldb.debugger.GetSelectedTarget()
+        target.Clear()
